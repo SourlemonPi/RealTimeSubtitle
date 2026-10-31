@@ -12,6 +12,7 @@ from translations import get_text
 crash_log_file = open("crash.log", "w", encoding="utf-8")
 faulthandler.enable(crash_log_file)
 
+import json
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -719,7 +720,7 @@ class SpeechTranslateWorker(QThread):
                             if self.src_lang != "auto"
                             else None
                         ),
-                        beam_size=1,
+                        beam_size=3,
                         vad_filter=True
                     )
 
@@ -1029,7 +1030,117 @@ class SubtitleOverlay(QWidget):
 # 5. 설정 메인 패널 UI
 # ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# 5. 설정 메인 패널 UI
+# ------------------------------------------------------------
+
 class ControlPanel(QWidget):
+
+    # 설정 파일을 저장할 경로
+    CONFIG_FILE = "settings.json"
+
+    def load_settings(self):
+        """저장된 설정 불러와서 UI에 반영하기"""
+        if not os.path.exists(self.CONFIG_FILE):
+            return
+        try:
+            with open(self.CONFIG_FILE, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            
+            # 1. STT 모델 경로 복원
+            if "stt_path" in config:
+                self.stt_path_edit.setText(config["stt_path"])
+            
+            # 2. 오디오 장치 복원
+            if "device_name" in config:
+                for i in range(self.device_combo.count()):
+                    if config["device_name"] in self.device_combo.itemText(i):
+                        self.device_combo.setCurrentIndex(i)
+                        break
+            
+            # 3. Ollama 모델 복원
+            if "ollama_model" in config:
+                idx = self.model_combo.findText(config["ollama_model"])
+                if idx >= 0:
+                    self.model_combo.setCurrentIndex(idx)
+
+            # 4. 표시 단위 복원
+            if "display_mode" in config:
+                idx = self.display_mode_combo.findData(config["display_mode"])
+                if idx >= 0:
+                    self.display_mode_combo.setCurrentIndex(idx)
+            
+            # 5. 언어 설정 복원
+            if "src_lang" in config:
+                idx = self.src_lang_combo.findText(config["src_lang"])
+                if idx >= 0: self.src_lang_combo.setCurrentIndex(idx)
+            if "target_lang" in config:
+                idx = self.target_lang_combo.findText(config["target_lang"])
+                if idx >= 0: self.target_lang_combo.setCurrentIndex(idx)
+
+            # 6. 인터페이스 언어 복원
+            if "ui_language" in config:
+                for name, code in self.ui_languages.items():
+                    if code == config["ui_language"]:
+                        idx = self.ui_language_combo.findText(name)
+                        if idx >= 0:
+                            self.ui_language_combo.setCurrentIndex(idx)
+                        break
+            
+            # 7. 슬라이더 (투명도, 크기, 너비, 높이) 복원
+            if "opacity" in config:
+                self.opacity_slider.setValue(config["opacity"])
+                self.overlay.set_opacity_val(config["opacity"] / 100.0)
+            if "font_size" in config:
+                self.size_slider.setValue(config["font_size"])
+                self.overlay.set_font_size(config["font_size"])
+            if "width" in config:
+                self.width_slider.setValue(config["width"])
+                self.overlay.set_overlay_width(config["width"])
+            if "height" in config:
+                self.height_slider.setValue(config["height"])
+                self.overlay.set_overlay_height(config["height"])
+                
+        except Exception as e:
+            logging.exception(f"설정 불러오기 실패: {e}")
+
+    def closeEvent(self, event):
+        """프로그램이 꺼질 때 현재 설정 값을 JSON으로 저장 및 스레드 정리"""
+        if (
+            self.worker is not None
+            and self.worker.isRunning()
+        ):
+            self.worker.stop()
+            self.worker.wait()
+
+        if (
+            self.test_worker is not None
+            and self.test_worker.isRunning()
+        ):
+            self.test_worker.stop()
+            self.test_worker.wait()
+
+        try:
+            config = {
+                "stt_path": self.stt_path_edit.text(),
+                "device_name": self.device_combo.currentText(),
+                "ollama_model": self.model_combo.currentText(),
+                "display_mode": self.display_mode_combo.currentData(),
+                "src_lang": self.src_lang_combo.currentText(),
+                "target_lang": self.target_lang_combo.currentText(),
+                "ui_language": self.ui_language,
+                "opacity": self.opacity_slider.value(),
+                "font_size": self.size_slider.value(),
+                "width": self.width_slider.value(),
+                "height": self.height_slider.value()
+            }
+            with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            logging.exception(f"설정 저장 실패: {e}")
+        
+        self.overlay.close()
+        event.accept()
 
     def __init__(self, overlay):
 
@@ -1695,6 +1806,8 @@ class ControlPanel(QWidget):
             300
         )
 
+        self.load_settings()
+
         # 초기 언어 적용
 
         self.retranslate_ui()
@@ -2014,31 +2127,6 @@ class ControlPanel(QWidget):
         )
 
         self.worker = None
-
-    # --------------------------------------------------------
-    # 프로그램 종료
-    # --------------------------------------------------------
-
-    def closeEvent(self, event):
-
-        if (
-            self.worker is not None
-            and self.worker.isRunning()
-        ):
-
-            self.worker.stop()
-            self.worker.wait()
-
-        if (
-            self.test_worker is not None
-            and self.test_worker.isRunning()
-        ):
-
-            self.test_worker.stop()
-            self.test_worker.wait()
-
-        event.accept()
-
 
 # ------------------------------------------------------------
 # 6. 프로그램 실행
