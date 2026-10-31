@@ -52,7 +52,7 @@ ollama --version
 Example:
 
 ```cmd
-ollama pull qwen2.5:7b
+ollama pull MedAIBase/Tencent-HY-MT1.5:1.8b
 ```
 
 Check installed models:
